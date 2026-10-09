@@ -10,7 +10,7 @@ for(let i=0;i<150;i++){try{session=JSON.parse(await fs.readFile(path.join(data,'
 if(!session)throw Error('No package session');
 const browser=await chromium.launch({channel:'msedge'});const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(session.url);await page.getByRole('button',{name:'Choose a folder',exact:true}).click();
+ await page.goto(session.url);await page.getByRole('button',{name:/^Choose a folder/}).click();
  await page.getByLabel('Local folder or drive roots').fill(root);
  await page.getByRole('button',{name:'Start metadata scan',exact:true}).click();
  await page.getByText('Local inventory · Selected scope enumerated').waitFor({timeout:20000});
