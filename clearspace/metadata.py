@@ -5,9 +5,23 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import contextmanager
+from functools import lru_cache
 
 REPARSE = 0x400
 CLOUD = 0x1000 | 0x40000 | 0x400000
+
+
+class StandardInfo(ctypes.Structure):
+    _fields_=[('allocation',ctypes.c_longlong),('length',ctypes.c_longlong),('links',ctypes.c_ulong),('deleted',ctypes.c_ubyte),('directory',ctypes.c_ubyte)]
+
+
+class HandleInfo(ctypes.Structure):
+    _fields_=[('attrs',ctypes.c_ulong),('rest',ctypes.c_ulong*12)]
+
+
+@lru_cache(maxsize=1)
+def kernel():
+    return ctypes.WinDLL('kernel32',use_last_error=True)
 
 
 @contextmanager
@@ -15,7 +29,7 @@ def pinned_directory(path):
     """Pin each ordinary ancestor against rename/delete while enumerating by path."""
     safe_local(path)
     handles=[]
-    k=ctypes.WinDLL('kernel32',use_last_error=True) if os.name=='nt' else None
+    k=kernel() if os.name=='nt' else None
     try:
         if k:
             k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p]
@@ -24,9 +38,7 @@ def pinned_directory(path):
                 h=k.CreateFileW(native(str(p)),1,3,None,3,0x02000000|0x00200000,None)
                 if h==ctypes.c_void_p(-1).value:raise OSError('Cannot pin selected directory')
                 handles.append(h)
-                class Info(ctypes.Structure):
-                    _fields_=[('attrs',ctypes.c_ulong),('rest',ctypes.c_ulong*12)]
-                info=Info()
+                info=HandleInfo()
                 if not k.GetFileInformationByHandle(ctypes.c_void_p(h),ctypes.byref(info)) or info.attrs & (REPARSE|CLOUD):raise OSError('Directory became a reparse or cloud object')
                 final=ctypes.create_unicode_buffer(32768)
                 if not k.GetFinalPathNameByHandleW(ctypes.c_void_p(h),final,len(final),0):raise OSError('Cannot validate directory identity')
@@ -55,7 +67,7 @@ def safe_local(path):
         if stat.S_ISLNK(s.st_mode) or getattr(s, 'st_file_attributes', 0) & REPARSE:
             raise ValueError('Reparse roots or ancestors are excluded')
     if os.name == 'nt':
-        k = ctypes.WinDLL('kernel32', use_last_error=True)
+        k = kernel()
         k.GetDriveTypeW.argtypes = [ctypes.c_wchar_p]
         if k.GetDriveTypeW(p.anchor) != 3:
             raise ValueError('Select an ordinary fixed local volume')
@@ -64,9 +76,15 @@ def safe_local(path):
 
 def filesystem(path):
     if os.name != 'nt': return 'unsupported'
-    k = ctypes.WinDLL('kernel32', use_last_error=True)
+    return volume_filesystem(Path(path).anchor)
+
+
+@lru_cache(maxsize=64)
+def volume_filesystem(anchor):
+    # Scans never traverse mount/reparse points. Roots are canonicalized first.
+    k = kernel()
     root = ctypes.create_unicode_buffer(32768)
-    if not k.GetVolumePathNameW(ctypes.c_wchar_p(native(path)), root, len(root)): return 'unknown'
+    if not k.GetVolumePathNameW(ctypes.c_wchar_p(native(anchor)), root, len(root)): return 'unknown'
     name = ctypes.create_unicode_buffer(256)
     if not k.GetVolumeInformationW(root, None, 0, None, None, None, name, len(name)): return 'unknown'
     return name.value
@@ -75,7 +93,7 @@ def filesystem(path):
 def canonical_root(path):
     path=safe_local(path)
     if os.name!='nt':return path
-    k=ctypes.WinDLL('kernel32',use_last_error=True)
+    k=kernel()
     k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p]
     k.CreateFileW.restype=ctypes.c_void_p
     h=k.CreateFileW(native(path),0,7,None,3,0x02000000|0x00200000,None)
@@ -98,7 +116,7 @@ def metadata(path):
     status = 'excluded' if reparse or cloud != 'ordinary-local' else 'unknown'
     if kind == 'file' and not reparse and cloud == 'ordinary-local':
         if os.name == 'nt' and filesystem(path) == 'NTFS' and attrs & (0x800 | 0x200):
-            k = ctypes.WinDLL('kernel32', use_last_error=True)
+            k = kernel()
             k.GetCompressedFileSizeW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_ulong)]
             k.GetCompressedFileSizeW.restype = ctypes.c_ulong
             high = ctypes.c_ulong()
@@ -109,14 +127,12 @@ def metadata(path):
                 allocated = (high.value << 32) | low; status = 'known-default-stream'
             else: status = f'error-{err}'
         elif os.name == 'nt' and filesystem(path) == 'NTFS':
-            k=ctypes.WinDLL('kernel32',use_last_error=True)
+            k=kernel()
             k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p]
             k.CreateFileW.restype=ctypes.c_void_p
             h=k.CreateFileW(native(path),0,7,None,3,0x00200000,None)
             if h != ctypes.c_void_p(-1).value:
-                class Standard(ctypes.Structure):
-                    _fields_=[('allocation',ctypes.c_longlong),('length',ctypes.c_longlong),('links',ctypes.c_ulong),('deleted',ctypes.c_ubyte),('directory',ctypes.c_ubyte)]
-                info=Standard()
+                info=StandardInfo()
                 try:
                     if k.GetFileInformationByHandleEx(ctypes.c_void_p(h),1,ctypes.byref(info),ctypes.sizeof(info)):
                         allocated=info.allocation; status='known-default-stream'
@@ -138,7 +154,7 @@ def volume_space(path):
         import shutil
         d = shutil.disk_usage(path)
         return dict(at=now(), volume=str(os.stat(path).st_dev), available=str(d.free), free=str(d.free), total=str(d.total))
-    k = ctypes.WinDLL('kernel32', use_last_error=True)
+    k = kernel()
     values = [ctypes.c_ulonglong() for _ in range(3)]
     if not k.GetDiskFreeSpaceExW(ctypes.c_wchar_p(native(path)), *[ctypes.byref(x) for x in values]):
         raise ctypes.WinError(ctypes.get_last_error())
