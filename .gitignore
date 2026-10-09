@@ -1,0 +1,12 @@
+.venv/
+node_modules/
+dist/
+build/
+work/
+outputs/
+__pycache__/
+.pytest_cache/
+*.sqlite*
+*.zip
+*.spec.bak
+.superpowers/
