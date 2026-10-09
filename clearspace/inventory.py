@@ -5,12 +5,12 @@ import threading
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from .metadata import metadata, now, safe_local, volume_space, pinned_directory
+from .metadata import metadata, now, safe_local, volume_space, pinned_directory, canonical_root
 from .policy import classify
 
 
 def normalize_roots(roots):
-    selected = sorted({safe_local(p) for p in roots}, key=lambda p: (len(p), p.lower()))
+    selected = sorted({canonical_root(p) for p in roots}, key=lambda p: (len(p), p.lower()))
     result = []
     identities = set()
     for p in selected:
@@ -62,7 +62,7 @@ class Inventory:
     def scan(self, requested, cancel, protected=()):
         self._checks=0
         roots = normalize_roots(requested)
-        protected = [safe_local(x) for x in protected]
+        protected = [canonical_root(x) for x in protected]
         state = dict(scan_id=str(uuid.uuid4()), started=now(), finished=None, requested_roots=requested, roots=roots, protected=protected, status='scanning', items=0, gaps=0, reason=None, before=[], after=[], streams='Named NTFS streams excluded; allocation covers default streams only.')
         for root in roots:
             v = volume_space(root)
@@ -128,6 +128,10 @@ class Inventory:
     def fail(self):
         state=self.state(); state.update(status='partial',reason='Scan could not continue. A selected folder may have moved or access changed.',finished=now())
         with self.connect() as c: self.save_state(c,state)
+
+    def preparing(self,roots):
+        state=self.state();state.update(scan_id=str(uuid.uuid4()),status='scanning',reason='Preparing selected scope; prior rows remain until enumeration starts.',started=now(),requested_roots=roots)
+        with self.connect() as c:self.save_state(c,state)
 
     def record(self, c, state, m, protected):
         category, reason, protect, guidance = classify(m, protected)

@@ -72,6 +72,22 @@ def filesystem(path):
     return name.value
 
 
+def canonical_root(path):
+    path=safe_local(path)
+    if os.name!='nt':return path
+    k=ctypes.WinDLL('kernel32',use_last_error=True)
+    k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p]
+    k.CreateFileW.restype=ctypes.c_void_p
+    h=k.CreateFileW(native(path),0,7,None,3,0x02000000|0x00200000,None)
+    if h==ctypes.c_void_p(-1).value:raise OSError('Cannot resolve selected root')
+    try:
+        final=ctypes.create_unicode_buffer(32768)
+        if not k.GetFinalPathNameByHandleW(ctypes.c_void_p(h),final,len(final),0):raise OSError('Cannot normalize volume alias')
+        resolved=final.value.removeprefix('\\\\?\\')
+        return safe_local(resolved)
+    finally:k.CloseHandle(ctypes.c_void_p(h))
+
+
 def metadata(path):
     s = os.lstat(native(path))
     attrs = getattr(s, 'st_file_attributes', 0)

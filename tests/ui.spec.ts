@@ -15,4 +15,10 @@ test('fictional workflow and responsive layout',async({page})=>{
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
  await page.screenshot({path:'outputs/screenshots/mobile.png',fullPage:true});
  expect(errors).toEqual([]);
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await page.keyboard.press('Tab');
+ expect(await page.evaluate(()=>document.activeElement?.tagName)).not.toBe('BODY');
+ await page.setViewportSize({width:720,height:1000});
+ await page.evaluate(()=>document.documentElement.style.fontSize='30px');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
 });

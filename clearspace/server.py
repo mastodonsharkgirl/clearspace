@@ -100,6 +100,7 @@ def create_app(inv, token, host, frontend=None, pick_folder=None, shutdown=None)
             idle(); roots=normalize_roots(scope.roots)
             protected=[safe_local(p) for p in scope.protected]
             app.state.duplicates=None
+            inv.preparing(scope.roots)
             def run_scan():
                 try: inv.scan(scope.roots,app.state.cancel,protected)
                 except Exception: inv.fail()

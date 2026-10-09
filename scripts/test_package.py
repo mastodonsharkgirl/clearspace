@@ -9,7 +9,7 @@ from pathlib import Path
 
 p=argparse.ArgumentParser();p.add_argument('exe');p.add_argument('--source',action='store_true');args=p.parse_args()
 base=Path('work/package-fixtures').absolute();base.mkdir(parents=True,exist_ok=True)
-data=base/'app data ü';root=base/'Downloads';root.mkdir(exist_ok=True)
+data=base/('app data ü '+str(time.time_ns()));root=base/'Downloads';root.mkdir(exist_ok=True)
 for n in range(1500): (root/f'fictional-{n}.txt').write_text('fixture '+str(n))
 (root/'copy-a.bin').write_bytes(b'abc'*5000);(root/'copy-b.bin').write_bytes(b'abc'*5000)
 command=([args.exe,'run_clearspace.py'] if args.source else [args.exe])+['--headless','--data',str(data)]
