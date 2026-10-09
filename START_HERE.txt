@@ -1,0 +1,19 @@
+CLEARSPACE 0.1.0-preview.1 — UNSIGNED WINDOWS 11 x64 PREVIEW
+
+1. Download the ZIP from the project's GitHub Release.
+2. Choose Extract all. Keep Clearspace.exe and its _internal folder together.
+3. Open Clearspace.exe. Choose a folder in the browser to start a read-only metadata scan.
+
+No Python, Node, terminal setup, account or model is required.
+Use the launcher's Open Clearspace button to reopen the browser.
+Use Quit Clearspace to stop the app. Closing the browser tab does not stop it.
+Use Choose data location to restart with a dedicated app-data directory elsewhere.
+
+This app never deletes or moves files. Make any changes using Windows or the owning application.
+Metadata scans exclude links/cloud placeholders. Duplicate comparison is a separate content-reading action.
+Unknown allocation is not zero. Named NTFS streams and filesystem metadata are outside measurement scope.
+Keep review choices and exports private: they can contain local paths.
+
+This unsigned preview may trigger normal Windows protections. Do not disable Defender, SmartScreen or Smart App Control.
+Clean standard-user browser download / Extract all / launch acceptance remains pending.
+For source, versioned hashes, validation and limitations: https://github.com/mastodonsharkgirl/clearspace/releases

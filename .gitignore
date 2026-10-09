@@ -1,6 +1,8 @@
 .venv/
 node_modules/
 dist/
+dist-sample/
+test-results/
 build/
 work/
 outputs/
@@ -10,3 +12,4 @@ __pycache__/
 *.zip
 *.spec.bak
 .superpowers/
+clearspace/build_info.json

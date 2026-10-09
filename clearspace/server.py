@@ -34,7 +34,7 @@ class Settings(BaseModel):
     action: Literal['storage','apps']
 
 
-def create_app(inv, token, host, frontend=None, pick_folder=None):
+def create_app(inv, token, host, frontend=None, pick_folder=None, shutdown=None):
     app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None)
     app.state.cancel=threading.Event(); app.state.worker=None; app.state.duplicates=None
     app.state.action_lock=threading.Lock()
@@ -73,6 +73,10 @@ def create_app(inv, token, host, frontend=None, pick_folder=None):
     def config():
         build=Path(__file__).parent/'build_info.json'
         return dict(inv.preflight(),version=__version__,signing='unsigned',build=json.loads(build.read_text()) if build.exists() else {'source_commit':'development'},picker=pick_folder is not None)
+    @app.post('/api/quit')
+    def quit_app():
+        if shutdown is None: raise HTTPException(409,'Quit from the launcher')
+        app.state.cancel.set();shutdown();return {'quitting':True}
     @app.post('/api/pick')
     def pick():
         if pick_folder is None: raise HTTPException(409,'Enter a local folder path')
@@ -88,7 +92,10 @@ def create_app(inv, token, host, frontend=None, pick_folder=None):
             idle(); roots=normalize_roots(scope.roots)
             protected=[safe_local(p) for p in scope.protected]
             app.state.duplicates=None
-            work(lambda:inv.scan(roots,app.state.cancel,protected))
+            def run_scan():
+                try: inv.scan(scope.roots,app.state.cancel,protected)
+                except Exception: inv.fail()
+            work(run_scan)
         return {'started':True}
     @app.post('/api/cancel')
     def cancel(): app.state.cancel.set(); return {'requested':True}
@@ -129,15 +136,20 @@ def create_app(inv, token, host, frontend=None, pick_folder=None):
     def duplicate_status(): return app.state.duplicates
     @app.get('/api/export')
     def export():
-        idle()
+        if not app.state.action_lock.acquire(blocking=False): raise HTTPException(409,'Another action is active')
+        try: idle()
+        except Exception:
+            app.state.action_lock.release(); raise
         def generate():
-            yield json.dumps({'report':inv.report(),'notice':'Private local paths. Review before sharing.'})+'\n'
-            offset=0
-            while True:
-                page=inv.entries(offset,100)
-                for e in page['entries']: yield json.dumps(e)+'\n'
-                offset+=100
-                if offset>=page['total']: break
+            try:
+                yield json.dumps({'report':inv.report(),'notice':'Private local paths. Review before sharing.'})+'\n'
+                offset=0
+                while True:
+                    page=inv.entries(offset,100)
+                    for e in page['entries']: yield json.dumps(e)+'\n'
+                    offset+=100
+                    if offset>=page['total']: break
+            finally: app.state.action_lock.release()
         return StreamingResponse(generate(),media_type='application/x-ndjson',headers={'Content-Disposition':'attachment; filename="Clearspace-plan.ndjson"'})
     if frontend: app.mount('/',StaticFiles(directory=frontend,html=True),name='ui')
     return app

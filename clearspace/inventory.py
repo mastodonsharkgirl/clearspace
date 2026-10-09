@@ -29,6 +29,7 @@ class Inventory:
         self.db = self.data / 'inventory.sqlite'
         self.max_items, self.budget, self.reserve, self.adapter = max_items, budget, reserve, adapter
         self.lock = threading.Lock()
+        self._report_lock=threading.Lock();self._cached_report=None;self._revision=0
         with self.connect() as c:
             c.executescript('''CREATE TABLE IF NOT EXISTS entries(id INTEGER PRIMARY KEY, path TEXT, kind TEXT, category TEXT, allocated INTEGER, logical INTEGER, identity TEXT, body TEXT);
             CREATE TABLE IF NOT EXISTS queue(id INTEGER PRIMARY KEY, path TEXT, volume TEXT);
@@ -43,7 +44,8 @@ class Inventory:
         c = sqlite3.connect(self.db, timeout=10)
         c.row_factory = sqlite3.Row
         c.execute('PRAGMA journal_mode=DELETE'); c.execute('PRAGMA temp_store=MEMORY'); c.execute('PRAGMA cache_size=-4096')
-        c.execute(f'PRAGMA max_page_count={max(64, self.budget // 4096)}')
+        # Reserve half for SQLite rollback journal; committed DB plus journal stay bounded.
+        c.execute(f'PRAGMA max_page_count={max(64, self.budget // 2 // 4096)}')
         try:
             with c: yield c
         finally: c.close()
@@ -58,6 +60,7 @@ class Inventory:
         return dict(data_location=str(self.data), available=volume_space(str(self.data))['available'], budget=str(self.budget), reserve=str(self.reserve), max_items=self.max_items)
 
     def scan(self, requested, cancel, protected=()):
+        self._checks=0
         roots = normalize_roots(requested)
         protected = [safe_local(x) for x in protected]
         state = dict(scan_id=str(uuid.uuid4()), started=now(), finished=None, requested_roots=requested, roots=roots, protected=protected, status='scanning', items=0, gaps=0, reason=None, before=[], after=[], streams='Named NTFS streams excluded; allocation covers default streams only.')
@@ -112,13 +115,19 @@ class Inventory:
     def room(self, c, state):
         if state['items'] >= self.max_items:
             state.update(status='partial', reason='Item limit reached. Narrow your selected scope.'); return False
-        if state['items'] % 64 == 0:
+        self._checks=getattr(self,'_checks',0)+1
+        if self._checks % 64 == 1:
             c.commit()
             pages = c.execute('PRAGMA page_count').fetchone()[0]
-            if pages*4096 > self.budget - 1024*1024 or int(volume_space(str(self.data))['available']) < self.reserve + 2*1024*1024:
+            queued=c.execute('SELECT COUNT(*) FROM queue').fetchone()[0]
+            if queued+state['items']>=self.max_items or pages*4096 > self.budget//2 - 1024*1024 or int(volume_space(str(self.data))['available']) < self.reserve + self.budget//2:
                 state.update(status='partial', reason='Inventory budget or free-space reserve reached.'); return False
             self.save_state(c, state)
         return True
+
+    def fail(self):
+        state=self.state(); state.update(status='partial',reason='Scan could not continue. A selected folder may have moved or access changed.',finished=now())
+        with self.connect() as c: self.save_state(c,state)
 
     def record(self, c, state, m, protected):
         category, reason, protect, guidance = classify(m, protected)
@@ -131,6 +140,15 @@ class Inventory:
         self.record(c, state, m, ()); state['gaps'] += 1
 
     def report(self):
+        with self._report_lock:
+            state=self.state()
+            key=(json.dumps(state,sort_keys=True),self._revision)
+            if self._cached_report and self._cached_report[0]==key:return self._cached_report[1]
+            result=self._report()
+            self._cached_report=(key,result)
+            return result
+
+    def _report(self):
         state = self.state(); logical = allocated = reviewable = unknown = shared = 0; categories = {}; seen = set()
         with self.connect() as c:
             for row in c.execute('SELECT e.*,m.value AS mark FROM entries e LEFT JOIN marks m ON e.path=m.path'):
@@ -170,6 +188,7 @@ class Inventory:
         if value not in {'keep','later','review'}: raise ValueError('Invalid review state')
         m=self.entry(id)
         with self.connect() as c: c.execute('INSERT OR REPLACE INTO marks VALUES(?,?)',(m['path'],value))
+        self._revision+=1
 
     def remeasure(self):
         state=self.state(); state['after']=[dict(volume_space(x['root']),root=x['root']) for x in state.get('before',[])]
