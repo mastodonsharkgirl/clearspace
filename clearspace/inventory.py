@@ -5,7 +5,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from .metadata import metadata, now, safe_local, volume_space
+from .metadata import metadata, now, safe_local, volume_space, pinned_directory
 from .policy import classify
 
 
@@ -91,7 +91,7 @@ class Inventory:
                         if m['volume'] != q['volume']:
                             state['gaps'] += 1; continue
                         safe_local(path)
-                        with os.scandir(path) as entries:
+                        with pinned_directory(path), os.scandir(path) as entries:
                             for entry in entries:
                                 if cancel.is_set(): break
                                 if not self.room(c, state): break

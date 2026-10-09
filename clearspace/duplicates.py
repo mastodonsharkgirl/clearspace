@@ -6,7 +6,13 @@ from .metadata import metadata, safe_local, native, REPARSE, CLOUD
 
 
 def signature(m):
-    return tuple(m[k] for k in ('identity','logical','modified_ns','cloud','reparse'))
+    return tuple(m[k] for k in ('identity','logical','modified_ns','cloud','reparse','links'))
+
+
+def validate_open_file(f,m):
+    s=os.fstat(f.fileno())
+    if s.st_size!=m['logical'] or s.st_mtime_ns!=int(m['modified_ns']) or s.st_nlink!=1 or f'{s.st_dev}:{s.st_ino}'!=m['identity']:
+        raise ValueError('File identity, size or links changed before content read')
 
 
 @contextmanager
@@ -49,9 +55,17 @@ def compare_selected(inv, ids, cancel, byte_budget=2*1024**3):
             if used+m['logical']*3 > byte_budget: raise ValueError('Content-read budget reached; select smaller groups')
             digest=hashlib.sha256()
             with content_file(m['path']) as f:
-                while chunk:=f.read(1024*1024):
+                validate_open_file(f,m)
+                remaining=m['logical']
+                while remaining:
                     if cancel.is_set(): raise ValueError('Cancelled')
+                    amount=min(1024*1024,remaining,byte_budget-used)
+                    if amount<=0:raise ValueError('Content-read budget reached')
+                    chunk=f.read(amount)
+                    if not chunk:raise ValueError('File shrank during hashing')
                     used+=len(chunk); digest.update(chunk)
+                    remaining-=len(chunk)
+                validate_open_file(f,m)
             if signature(metadata(m['path']))!=signature(before): raise ValueError('Changed during hashing')
             groups.setdefault((m['logical'],digest.hexdigest()),[]).append((id,m))
         except (OSError,ValueError) as e: skipped.append(dict(id=id,reason=str(e)))
@@ -65,12 +79,17 @@ def compare_selected(inv, ids, cancel, byte_budget=2*1024**3):
                 if signature(metadata(first['path']))!=signature(first) or signature(metadata(m['path']))!=signature(m): raise ValueError('Stale before comparison')
                 same=True
                 with content_file(first['path']) as a, content_file(m['path']) as b:
-                    while True:
+                    validate_open_file(a,first);validate_open_file(b,m)
+                    remaining=m['logical']
+                    while remaining:
                         if cancel.is_set(): raise ValueError('Cancelled')
-                        x,y=a.read(1024*1024),b.read(1024*1024); used+=len(x)+len(y)
-                        if used>byte_budget: raise ValueError('Content-read budget reached')
+                        amount=min(1024*1024,remaining,(byte_budget-used)//2)
+                        if amount<=0:raise ValueError('Content-read budget reached')
+                        x,y=a.read(amount),b.read(amount); used+=len(x)+len(y)
                         if x!=y: same=False; break
-                        if not x: break
+                        if not x:raise ValueError('File shrank during comparison')
+                        remaining-=len(x)
+                    validate_open_file(a,first);validate_open_file(b,m)
                 if signature(metadata(first['path']))!=signature(first) or signature(metadata(m['path']))!=signature(m): raise ValueError('Changed during comparison')
                 if same: equal.append(id)
             except (OSError,ValueError) as e: skipped.append(dict(id=id,reason=str(e)))

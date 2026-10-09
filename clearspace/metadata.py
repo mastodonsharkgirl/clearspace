@@ -4,9 +4,37 @@ import os
 import stat
 from datetime import datetime, timezone
 from pathlib import Path
+from contextlib import contextmanager
 
 REPARSE = 0x400
 CLOUD = 0x1000 | 0x40000 | 0x400000
+
+
+@contextmanager
+def pinned_directory(path):
+    """Pin each ordinary ancestor against rename/delete while enumerating by path."""
+    safe_local(path)
+    handles=[]
+    k=ctypes.WinDLL('kernel32',use_last_error=True) if os.name=='nt' else None
+    try:
+        if k:
+            k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p]
+            k.CreateFileW.restype=ctypes.c_void_p
+            for p in [*reversed(Path(path).parents),Path(path)]:
+                h=k.CreateFileW(native(str(p)),1,3,None,3,0x02000000|0x00200000,None)
+                if h==ctypes.c_void_p(-1).value:raise OSError('Cannot pin selected directory')
+                handles.append(h)
+                class Info(ctypes.Structure):
+                    _fields_=[('attrs',ctypes.c_ulong),('rest',ctypes.c_ulong*12)]
+                info=Info()
+                if not k.GetFileInformationByHandle(ctypes.c_void_p(h),ctypes.byref(info)) or info.attrs & (REPARSE|CLOUD):raise OSError('Directory became a reparse or cloud object')
+                final=ctypes.create_unicode_buffer(32768)
+                if not k.GetFinalPathNameByHandleW(ctypes.c_void_p(h),final,len(final),0):raise OSError('Cannot validate directory identity')
+                if final.value.rstrip('\\').casefold()!=native(str(p)).rstrip('\\').casefold():raise OSError('Directory alias or identity changed')
+        yield
+    finally:
+        if k:
+            for h in reversed(handles):k.CloseHandle(ctypes.c_void_p(h))
 
 
 def now():

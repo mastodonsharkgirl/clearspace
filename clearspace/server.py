@@ -34,6 +34,14 @@ class Settings(BaseModel):
     action: Literal['storage','apps']
 
 
+class LockedStream(StreamingResponse):
+    def __init__(self,*args,operation_lock,**kwargs):
+        super().__init__(*args,**kwargs);self.operation_lock=operation_lock
+    async def __call__(self,scope,receive,send):
+        try:await super().__call__(scope,receive,send)
+        finally:self.operation_lock.release()
+
+
 def create_app(inv, token, host, frontend=None, pick_folder=None, shutdown=None):
     app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None)
     app.state.cancel=threading.Event(); app.state.worker=None; app.state.duplicates=None
@@ -141,15 +149,13 @@ def create_app(inv, token, host, frontend=None, pick_folder=None, shutdown=None)
         except Exception:
             app.state.action_lock.release(); raise
         def generate():
-            try:
-                yield json.dumps({'report':inv.report(),'notice':'Private local paths. Review before sharing.'})+'\n'
-                offset=0
-                while True:
-                    page=inv.entries(offset,100)
-                    for e in page['entries']: yield json.dumps(e)+'\n'
-                    offset+=100
-                    if offset>=page['total']: break
-            finally: app.state.action_lock.release()
-        return StreamingResponse(generate(),media_type='application/x-ndjson',headers={'Content-Disposition':'attachment; filename="Clearspace-plan.ndjson"'})
+            yield json.dumps({'report':inv.report(),'notice':'Private local paths. Review before sharing.'})+'\n'
+            offset=0
+            while True:
+                page=inv.entries(offset,100)
+                for e in page['entries']: yield json.dumps(e)+'\n'
+                offset+=100
+                if offset>=page['total']: break
+        return LockedStream(generate(),operation_lock=app.state.action_lock,media_type='application/x-ndjson',headers={'Content-Disposition':'attachment; filename="Clearspace-plan.ndjson"'})
     if frontend: app.mount('/',StaticFiles(directory=frontend,html=True),name='ui')
     return app
