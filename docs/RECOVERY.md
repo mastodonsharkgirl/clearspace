@@ -1,6 +1,6 @@
-# Clearspace recovery candidate 0.1.0-preview.3
+# Clearspace recovery preview 0.1.0-preview.3
 
-The preview.1 real-user journey failed acceptance. Corrected preview.3 is an unsigned preview candidate with completed exact-package headless checks and explicit remaining desktop acceptance gaps. Publication is held for coordinator review under the master-approved candid-preview exception.
+The preview.1 real-user journey failed acceptance. Corrected preview.3 is published as an unsigned preview with completed exact-package headless checks and explicit remaining desktop acceptance gaps. Coordinator acceptance uses the master-approved candid-preview exception, not stable desktop acceptance.
 
 ## Reproduced cause and changes
 
@@ -27,11 +27,14 @@ The preview.1 real-user journey failed acceptance. Corrected preview.3 is an uns
 - SHA-256: `3196f03e5646d8954e403f268ac893bb5aeaf5d0eb42850a05c7616264216aaf`
 - Versioned owner evidence: `outputs/0.1.0-preview.3/`; full `HANDOFF.md`, manifests, exact-package results, reviews and cleanup record.
 - Static sample SHA-256: `39fabb7ba79dd9528b653360d4a1a0c96347b5fa6e1a8c29d7a76607bbc0b9aa`, base `/tools/clearspace/`. Fictional sample; cannot scan local files.
+- Public release: https://github.com/mastodonsharkgirl/clearspace/releases/tag/v0.1.0-preview.3
+- Release tag: `48f263ec71cefabd186ee13f891196b81e59423a`; only recovery documentation and the focused-CI workflow differ from the tested binary source. Focused Windows source CI passed: https://github.com/mastodonsharkgirl/clearspace/actions/runs/37960920237
+- All 11 published assets were downloaded anonymously over HTTPS and matched their local SHA-256 hashes. Historical preview.1 asset sizes, hashes and modification times remain unchanged. Network download checks do not establish native desktop acceptance.
 
 ## Remaining acceptance
 
 1. Native foreground dialog, Cancel/retry, selection, repeated Browse, launcher Open/Quit and Open containing folder/manual review/rescan on exact preview.3 remain unverified.
 2. Clean standard-user browser download/Extract all/launch and successful whole-C scanning remain unverified. Do not restart visible/native testing or request another C selection without new direct user authorization.
-3. Coordinator review may accept an explicitly limited unsigned preview despite these native gaps under the master preview exception. No stable or fully verified Windows claim is supported. Publication has not occurred; preserve immutable preview.1 assets and superseded preview.2 evidence.
+3. Coordinator review accepted this explicitly limited unsigned preview despite these native gaps under the master preview exception. No stable or fully verified Windows claim is supported. Preserve immutable preview.1 assets and superseded preview.2 evidence.
 
 No real user drive was scanned during recovery; only workspace fixtures. Existing user launcher/data were preserved. Previously filtered mutation rechecks were not retried. No model, telemetry, deletion, service or startup entry was added.
