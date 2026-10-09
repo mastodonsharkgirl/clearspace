@@ -1,4 +1,30 @@
 import {test,expect} from '@playwright/test';
+test('folder loading, keyboard navigation and file details stay aligned',async({page})=>{
+ const root='C:\\Fixture',large=root+'\\Large';let release=()=>{};
+ const file={id:3,path:large+'\\unknown.bin',parent:large,kind:'file',allocated:null,logical:'10',category:'Protected / unknown',mark:'review',links:1,cloud:'ordinary-local',guidance:'coverage',reason:'Could not be measured',allocation_status:'unknown',error:'coverage-5'};
+ await page.route('**/api/**',async route=>{
+  const u=new URL(route.request().url()),p=u.pathname,folder=u.searchParams.get('path')||'';
+  if(p==='/api/browse'&&folder===large)await new Promise<void>(resolve=>{release=resolve});
+  const payload=p==='/api/config'?{picker:false,drives:[]}:p==='/api/report'?{scan_id:'fixture',status:'complete',items:3,roots:[root],allocated:'0',logical:'10',reviewable:'0',categories:{}}:p==='/api/pick'?{status:'unavailable'}:p==='/api/entries'?{entries:[file],total:1}:p.startsWith('/api/entry/')?file:p==='/api/browse'?{path:folder,parent:folder===large?root:'',entries:folder===large?[{...file,files:1,unknown:1,gaps:0,navigable:false}]:[{id:folder?2:1,path:folder?large:root,kind:'directory',allocated:'0',files:1,unknown:1,gaps:0,navigable:true}]}:null;
+  await route.fulfill({json:payload});
+ });
+ await page.goto('http://127.0.0.1:43191/#token=folder-test');
+ await page.getByRole('button',{name:/Fixture.*directory/}).click();
+ await expect(page.getByRole('heading',{name:'Folders & files'})).toBeFocused();
+ await page.getByRole('button',{name:'Large ↗ directory',exact:true}).focus();
+ await page.keyboard.press('Enter');
+ await expect(page.getByText('Loading folder…',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Large ↗ directory',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Up one level ↑'})).toBeDisabled();
+ release();
+ await page.getByRole('button',{name:'unknown.bin file',exact:true}).click();
+ await expect(page.locator('#review-details')).toBeFocused();
+ await expect(page.getByRole('heading',{name:'unknown.bin',exact:true})).toBeVisible();
+ await page.getByText('Measurement diagnostic',{exact:true}).click(); await expect(page.getByText('coverage-5',{exact:true})).toBeVisible();
+ await page.setViewportSize({width:390,height:844});
+ await page.getByRole('button',{name:'unknown.bin Protected / unknown',exact:true}).click();
+ await expect(page.locator('#review-details')).toBeFocused();
+});
 test('local startup is real and picker has visible lifecycle',async({page})=>{
  let picker='idle', requests=0;
  await page.route('**/api/**',async route=>{

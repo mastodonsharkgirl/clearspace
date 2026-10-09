@@ -1,4 +1,4 @@
-CLEARSPACE 0.1.0-preview.2 — UNSIGNED WINDOWS 11 x64 PREVIEW
+CLEARSPACE 0.1.0-preview.3 — UNSIGNED WINDOWS 11 x64 PREVIEW
 
 1. Download the ZIP from the project's GitHub Release.
 2. Choose Extract all. Keep Clearspace.exe and its _internal folder together.

@@ -4,3 +4,5 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 .treemap{position:relative;display:block;gap:0}.treemap button{position:absolute;height:100%;border:2px solid #fffefa;padding:12px 8px}.treemap button strong{max-width:100%;overflow:hidden}.treemap button span{white-space:nowrap}@media(max-width:650px){.treemap button{padding:10px 3px}.treemap button strong{writing-mode:vertical-rl;max-height:160px;white-space:nowrap;font-size:11px}.treemap button span{font-size:8px;white-space:normal}}
 .scope-actions{display:flex;gap:.6rem;flex-wrap:wrap;margin:.8rem 0}.folder-panel{margin:1.5rem 0;padding:1.5rem}.folder-panel nav{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}.folder-panel nav code{overflow-wrap:anywhere}.folder-panel .row-button:disabled{opacity:1;cursor:default}.scope button:disabled{cursor:wait}.folder-panel th{text-align:left}
+
+.folder-panel td:first-child{width:45%;min-width:180px}

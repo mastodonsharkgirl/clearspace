@@ -101,3 +101,29 @@ def test_folder_file_opens_existing_review_details(tmp_path):
         assert result.json()['mark']=='keep'
         assert result.json()['id']==file['id']
         assert result.json()['path']==str(root/'review.txt')
+
+
+def test_unknown_file_allocation_stays_unknown_in_browse(tmp_path):
+    from clearspace.metadata import metadata
+    root=tmp_path/'fixture'; root.mkdir(); (root/'unknown.bin').write_bytes(b'fixture')
+    def adapter(path):
+        item=metadata(path)
+        if item['kind']=='file': item.update(allocated=None,allocation_status='unsupported')
+        return item
+    inv=Inventory(tmp_path/'data',adapter=adapter); inv.scan([str(root)],threading.Event())
+    leaf=inv.browse(str(root))['entries'][0]
+    assert leaf['allocated'] is None
+    assert leaf['unknown']==1
+    assert inv.browse()['entries'][0]['allocated']=='0'
+
+
+def test_access_error_gets_local_coverage_guidance(tmp_path):
+    inv=Inventory(tmp_path/'data')
+    state=inv.state()
+    with inv.connect() as c:
+        inv.record_error(c,state,str(tmp_path/'unavailable'),'coverage-5')
+        inv.save_state(c,state)
+    item=inv.entries()['entries'][0]
+    assert item['guidance']=='coverage'
+    assert item['category']=='Protected / unknown'
+    assert 'not be measured' in item['reason']

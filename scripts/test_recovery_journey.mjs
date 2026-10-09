@@ -1,11 +1,15 @@
 import {chromium} from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 const session=JSON.parse(await fs.readFile(process.argv[2]||'work/recovery-finaldata/session.json','utf8'));
-const browser=await chromium.launch({channel:'msedge'});const page=await browser.newPage({viewport:{width:1440,height:1000}});
+const out=path.resolve(process.env.CLEARSPACE_EVIDENCE_DIR||'outputs');await fs.mkdir(path.join(out,'screenshots'),{recursive:true});
+const fixture=path.resolve('work/recovery-native/fixture');await fs.mkdir(path.join(fixture,'Large/Nested'),{recursive:true});await fs.writeFile(path.join(fixture,'Large/Nested/demo.bin'),Buffer.alloc(65536));await fs.writeFile(path.join(fixture,'small.txt'),'Synthetic test file');
+const browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- await page.goto(session.url);
+ const configuration=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/config');
+ await page.goto(session.url);const config=await (await configuration).json();
  if(await page.getByText('FICTIONAL DISK / EXPLORER').count())throw Error('Fictional startup');
  const scope=page.getByRole('textbox',{name:'Local folder or drive roots · one per line',exact:true});
  await scope.fill(path.resolve('work/recovery-native/missing'));
@@ -14,7 +18,7 @@ try{
  await scope.fill(path.resolve('work/recovery-native/fixture'));
  await page.getByRole('button',{name:'Start metadata scan',exact:true}).click();
  await page.getByText('Local inventory · Selected scope enumerated').waitFor({timeout:20000});
- await page.getByRole('button',{name:'fixture ↗ directory',exact:true}).click();
+ await page.getByRole('button',{name:/fixture ↗ directory$/}).click();
  await page.getByRole('button',{name:'Large ↗ directory',exact:true}).click();
  await page.getByRole('button',{name:'Nested ↗ directory',exact:true}).click();
  await page.getByRole('button',{name:'demo.bin file',exact:true}).click(); await page.getByRole('heading',{name:'demo.bin',exact:true}).waitFor(); await page.getByRole('button',{name:'Keep',exact:true}).click(); await page.getByText('Review choice saved. Keep choices persist across rescans.').waitFor();
@@ -23,7 +27,7 @@ try{
  await page.reload();
  await page.getByText('Local inventory · Selected scope enumerated').waitFor();
  if(await page.getByText('FICTIONAL DISK / EXPLORER').count())throw Error('Fictional reload');
- await page.screenshot({path:'outputs/screenshots/recovery-real-inventory.png',fullPage:true});
+ await page.screenshot({path:path.join(out,'screenshots/recovery-real-inventory.png'),fullPage:true});
  await page.setViewportSize({width:390,height:844});
  if(!await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))throw Error('Mobile overflow');
  const cancelRoot=path.resolve('work/recovery-native/cancel-fixture');await fs.mkdir(cancelRoot,{recursive:true});
@@ -33,6 +37,6 @@ try{
  await page.getByRole('button',{name:'Cancel operation',exact:true}).click();
  await page.getByText('Local inventory · Scan cancelled · partial results').waitFor({timeout:20000});
  if(errors.length)throw Error(errors.join('\n'));
- const evidence={realStartup:true,invalidPathVisible:true,typedSyntheticScan:true,folderDrilldown:true,upNavigation:true,reloadRealInventory:true,mobileOverflow:false,fileDetailsAndKeep:true,scanProgressAndCancel:true,nativePickerVerified:false,pageErrors:errors}; await fs.writeFile('outputs/recovery-browser-journey.json',JSON.stringify(evidence,null,2)); console.log(JSON.stringify(evidence));
+ const evidence={build:config.build,version:config.version,testedArchiveSha256:process.argv[3]?createHash('sha256').update(await fs.readFile(process.argv[3])).digest('hex'):null,execution:'Headless Microsoft Edge; synthetic workspace files only',realStartup:true,invalidPathVisible:true,typedSyntheticScan:true,folderDrilldown:true,upNavigation:true,reloadRealInventory:true,mobileOverflow:false,fileDetailsAndKeep:true,scanProgressAndCancel:true,nativePickerVerified:false,pageErrors:errors}; await fs.writeFile(path.join(out,'recovery-browser-journey.json'),JSON.stringify(evidence,null,2)); console.log(JSON.stringify(evidence));
 }finally{await browser.close()}
 

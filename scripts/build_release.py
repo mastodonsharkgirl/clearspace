@@ -15,7 +15,7 @@ if os.name!='nt' or sys.maxsize<=2**32:raise SystemExit('Build requires Windows 
 if shutil.disk_usage(repo).free<8*1024**3:raise SystemExit('Preserve 8 GiB build reserve')
 if subprocess.check_output(['git','status','--porcelain'],text=True).strip():raise SystemExit('Commit source before packaging')
 commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
-version='0.1.0-preview.2'
+version='0.1.0-preview.3'
 info={'source_commit':commit,'version':version,'signing':'unsigned','build':'local Windows 11 x64 / Python '+sys.version.split()[0],'validation_workflow':'https://github.com/mastodonsharkgirl/clearspace/actions/workflows/windows-tests.yml'}
 (repo/'clearspace/build_info.json').write_text(json.dumps(info,indent=2))
 subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','Clearspace.spec'],check=True)

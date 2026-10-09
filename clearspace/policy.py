@@ -5,6 +5,8 @@ CATEGORIES = ['Downloads to review', 'Personal media', 'Application managed', 'D
 
 def classify(m, protected=()):
     p = Path(m['path']); parts = {x.lower() for x in p.parts}
+    if m.get('kind')=='error':
+        return CATEGORIES[5], 'This location could not be measured. Access may be restricted or the item may have changed. Its contents and size remain unknown.', True, 'coverage'
     if m['cloud'] != 'ordinary-local' or m['reparse']:
         return CATEGORIES[4], 'Provider review only; content was not opened.', True, 'cloud'
     if any(p == Path(x) or Path(x) in p.parents for x in protected) or parts & {'windows', 'program files', 'program files (x86)', 'programdata', '$recycle.bin', 'system volume information'}:

@@ -234,21 +234,22 @@ class Inventory:
                 prefix=root.rstrip('\\/')+os.sep
                 args.extend([root,len(prefix),prefix])
         query=f'''WITH grouped AS (SELECT id,path,kind,allocated,logical,identity,body,{bucket} AS bucket FROM entries WHERE {where}),
-            totals AS (SELECT bucket,SUM(CASE WHEN kind='file' THEN logical ELSE 0 END) AS logical,
+            totals AS (SELECT bucket,MIN(CASE WHEN path=bucket THEN id END) AS entry_id,SUM(CASE WHEN kind='file' THEN logical ELSE 0 END) AS logical,
                 SUM(kind='file') AS files,SUM(kind='file' AND allocated IS NULL) AS unknown,
                 SUM(kind='error' OR json_extract(body,'$.reparse')=1 OR json_extract(body,'$.cloud')!='ordinary-local') AS gaps
                 FROM grouped GROUP BY bucket),
             known AS (SELECT bucket,SUM(allocated) AS allocated FROM
                 (SELECT bucket,COALESCE(identity,path),MAX(allocated) AS allocated FROM grouped WHERE kind='file' AND allocated IS NOT NULL GROUP BY bucket,COALESCE(identity,path)) GROUP BY bucket)
             SELECT t.*,COALESCE(k.allocated,0) AS allocated,e.id,e.kind,e.body
-            FROM totals t LEFT JOIN known k ON k.bucket=t.bucket LEFT JOIN entries e ON e.id=(SELECT MIN(id) FROM entries WHERE path=t.bucket)
+            FROM totals t LEFT JOIN known k ON k.bucket=t.bucket LEFT JOIN entries e ON e.id=t.entry_id
             ORDER BY allocated DESC,t.bucket LIMIT ? OFFSET ?'''
         with self.connect() as c:
             rows=c.execute(query,(*args,limit+1,offset)).fetchall()
         result=[]
         for row in rows[:limit]:
             body=json.loads(row['body']) if row['body'] else {}
-            result.append(dict(id=row['id'],path=row['bucket'],kind=row['kind'] or 'directory',allocated=str(row['allocated']),logical=str(row['logical']),files=row['files'],unknown=row['unknown'],gaps=row['gaps'],navigable=row['kind']=='directory' and not body.get('reparse') and body.get('cloud')=='ordinary-local'))
+            allocation=None if row['kind'] in ('file','error') and body.get('allocated') is None else str(row['allocated'])
+            result.append(dict(id=row['id'],path=row['bucket'],kind=row['kind'] or 'directory',allocated=allocation,logical=str(row['logical']),files=row['files'],unknown=row['unknown'],gaps=row['gaps'],navigable=row['kind']=='directory' and not body.get('reparse') and body.get('cloud')=='ordinary-local'))
         parent='' if not path or path.lower() in [r.lower() for r in roots] else str(Path(path).parent)
         return dict(path=path,parent=parent,roots=roots,entries=result,offset=offset,has_more=len(rows)>limit,status=state['status'])
 
