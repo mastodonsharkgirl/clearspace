@@ -30,6 +30,15 @@ def test_changed_since_scan_is_stale(tmp_path):
     assert result['skipped']
 
 
+def test_unique_sizes_are_not_read(tmp_path):
+    root,inv,ids=fixture(tmp_path)
+    (root/'a.bin').write_bytes(b'a');(root/'b.bin').write_bytes(b'bb')
+    inv.scan([str(root)],threading.Event())
+    selected=[e['id'] for e in inv.entries()['entries'] if e['kind']=='file']
+    result=compare_selected(inv,selected,threading.Event())
+    assert result['bytes_read']=='0'
+
+
 def test_security_gate_and_bounded_ids(tmp_path):
     root,inv,ids=fixture(tmp_path)
     app=create_app(inv,'test-token','127.0.0.1:43191')

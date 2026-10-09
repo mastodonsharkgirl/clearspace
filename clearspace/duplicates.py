@@ -1,6 +1,7 @@
 import ctypes
 import hashlib
 import os
+from collections import Counter
 from contextlib import contextmanager
 from .metadata import metadata, safe_local, native, REPARSE, CLOUD
 
@@ -45,13 +46,15 @@ def content_file(path):
 def compare_selected(inv, ids, cancel, byte_budget=2*1024**3):
     if not 2 <= len(ids) <= 100 or len(set(ids)) != len(ids): raise ValueError('Select 2 to 100 distinct files')
     groups={}; skipped=[]; used=0
-    for id in ids:
+    selected=[(id,inv.entry(id)) for id in ids]
+    sizes=Counter(m['logical'] for _,m in selected if m['kind']=='file')
+    for id,m in selected:
         if cancel.is_set(): break
-        m=inv.entry(id)
         try:
             if m['kind']!='file' or m['cloud']!='ordinary-local' or m['reparse'] or not m['identity'] or m['links'] != 1: raise ValueError('Ineligible cloud, reparse, shared-link or unidentified item')
             before=metadata(m['path'])
             if signature(before)!=signature(m): raise ValueError('Stale since scan')
+            if sizes[m['logical']]<2:raise ValueError('No selected file with matching logical size; content not read')
             if used+m['logical']*3 > byte_budget: raise ValueError('Content-read budget reached; select smaller groups')
             digest=hashlib.sha256()
             with content_file(m['path']) as f:
