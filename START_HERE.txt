@@ -1,8 +1,14 @@
-CLEARSPACE 0.1.0-preview.1 — UNSIGNED WINDOWS 11 x64 PREVIEW
+CLEARSPACE 0.1.0-preview.2 — UNSIGNED WINDOWS 11 x64 PREVIEW
 
 1. Download the ZIP from the project's GitHub Release.
 2. Choose Extract all. Keep Clearspace.exe and its _internal folder together.
-3. Open Clearspace.exe. Choose a folder in the browser to start a read-only metadata scan.
+3. Open the extracted Clearspace.exe, never the EXE inside the ZIP preview.
+4. The browser opens your empty or saved real inventory. Use Browse, a drive button, or paste a full folder path.
+5. Review the selected path, then press Start metadata scan. Follow Folders & files to inspect large folders.
+
+Browse opens a Windows dialog. Choose Select Folder, or Cancel to return without a selection.
+The browser shows a waiting message while it is open. If hidden, select Clearspace in the taskbar.
+Drive selection adds the drive to the scope; it does not start a scan automatically.
 
 No Python, Node, terminal setup, account or model is required.
 Use the launcher's Open Clearspace button to reopen the browser.

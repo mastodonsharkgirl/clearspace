@@ -15,7 +15,7 @@ if os.name!='nt' or sys.maxsize<=2**32:raise SystemExit('Build requires Windows 
 if shutil.disk_usage(repo).free<8*1024**3:raise SystemExit('Preserve 8 GiB build reserve')
 if subprocess.check_output(['git','status','--porcelain'],text=True).strip():raise SystemExit('Commit source before packaging')
 commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
-version='0.1.0-preview.1'
+version='0.1.0-preview.2'
 info={'source_commit':commit,'version':version,'signing':'unsigned','build':'local Windows 11 x64 / Python '+sys.version.split()[0],'validation_workflow':'https://github.com/mastodonsharkgirl/clearspace/actions/workflows/windows-tests.yml'}
 (repo/'clearspace/build_info.json').write_text(json.dumps(info,indent=2))
 subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','Clearspace.spec'],check=True)
@@ -41,8 +41,9 @@ sbom={'format':'Clearspace dependency inventory v1','source_commit':commit,'pyth
 (target/'SBOM.json').write_text(json.dumps(sbom,indent=2))
 (target/'BUILD_INFO.json').write_text(json.dumps(info,indent=2))
 (target/'THIRD_PARTY_NOTICES.txt').write_text('Clearspace includes CPython, Tcl/Tk, FastAPI/Starlette/Pydantic/Uvicorn and their dependencies, plus React. License texts are in licenses/. PyInstaller bootloader has its distribution exception. Build-only and test dependencies are listed separately by scope in SBOM.json. No model weights are bundled.\n')
-out=repo/'outputs';out.mkdir(exist_ok=True)
+out=repo/'outputs'/version;out.mkdir(parents=True,exist_ok=True)
 archive=out/f'Clearspace-{version}-windows-x64.zip'
+if archive.exists():raise SystemExit('Release archive already exists; choose a new version')
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
     for p in target.rglob('*'):
         if p.is_file():z.write(p,Path('Clearspace')/p.relative_to(target))

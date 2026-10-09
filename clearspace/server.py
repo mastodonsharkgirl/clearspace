@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from . import __version__
 from .inventory import normalize_roots
-from .metadata import safe_local, metadata
+from .metadata import safe_local, metadata, fixed_drives
 from .duplicates import compare_selected, signature
 
 
@@ -80,7 +80,7 @@ def create_app(inv, token, host, frontend=None, pick_folder=None, shutdown=None)
     @app.get('/api/config')
     def config():
         build=Path(__file__).parent/'build_info.json'
-        return dict(inv.preflight(),version=__version__,signing='unsigned',build=json.loads(build.read_text()) if build.exists() else {'source_commit':'development'},picker=pick_folder is not None)
+        return dict(inv.preflight(),version=__version__,signing='unsigned',build=json.loads(build.read_text()) if build.exists() else {'source_commit':'development'},picker=pick_folder is not None,drives=fixed_drives())
     @app.post('/api/quit')
     def quit_app():
         if shutdown is None: raise HTTPException(409,'Quit from the launcher')
@@ -88,9 +88,17 @@ def create_app(inv, token, host, frontend=None, pick_folder=None, shutdown=None)
     @app.post('/api/pick')
     def pick():
         if pick_folder is None: raise HTTPException(409,'Enter a local folder path')
-        return {'path':pick_folder()}
+        return pick_folder.request()
+    @app.get('/api/pick')
+    def picker_state():
+        return pick_folder.state() if pick_folder else {'status':'unavailable','path':''}
+    @app.get('/api/browse')
+    def browse(path:str=Query('',max_length=32768),offset:int=Query(0,ge=0,le=500000)):
+        return inv.browse(path,offset=offset)
     @app.get('/api/report')
     def report(): return inv.report()
+    @app.get('/api/entry/{id}')
+    def review_entry(id:int): return inv.review_entry(id)
     @app.get('/api/entries')
     def entries(offset:int=Query(0,ge=0,le=500000),limit:int=Query(50,ge=1,le=100),sort:Literal['allocated','logical','path']='allocated',direction:Literal['asc','desc']='desc',category:str|None=Query(None,max_length=100)):
         return inv.entries(offset,limit,sort,direction,category)

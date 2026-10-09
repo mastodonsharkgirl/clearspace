@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 import threading
 import uuid
@@ -10,7 +11,11 @@ from .policy import classify
 
 
 def normalize_roots(roots):
-    selected = sorted({canonical_root(p) for p in roots}, key=lambda p: (len(p), p.lower()))
+    paths=[p.strip().strip('"') for p in roots]
+    paths=[p+'\\' if re.fullmatch(r'[A-Za-z]:',p) else p for p in paths]
+    if any(not os.path.isabs(p) for p in paths):
+        raise ValueError('Paste a full folder path, or choose a drive such as C:\\')
+    selected = sorted({canonical_root(p) for p in paths}, key=lambda p: (len(p), p.lower()))
     result = []
     identities = set()
     for p in selected:
@@ -187,6 +192,65 @@ class Inventory:
         with self.connect() as c: row=c.execute('SELECT body FROM entries WHERE id=?',(id,)).fetchone()
         if not row: raise ValueError('Inventory item not found')
         return json.loads(row[0])
+
+    def review_entry(self,id):
+        with self.connect() as c:
+            row=c.execute('SELECT e.body,m.value AS mark FROM entries e LEFT JOIN marks m ON e.path=m.path WHERE e.id=?',(id,)).fetchone()
+        if not row: raise ValueError('Inventory item not found; refresh this view')
+        result=json.loads(row['body']); result.update(id=id,mark=row['mark'] or 'review')
+        for key in ('logical','allocated'):
+            if result[key] is not None: result[key]=str(result[key])
+        return result
+
+    def browse(self, path='', offset=0, limit=50):
+        """Aggregate only recorded metadata. Navigation never touches the disk."""
+        state=self.state(); roots=state.get('roots',[])
+        if not roots: return dict(path='',parent=None,roots=[],entries=[],total=0)
+        args=[]
+        if path:
+            with self.connect() as c:
+                row=c.execute('SELECT body FROM entries WHERE path=? COLLATE NOCASE AND kind=\'directory\' LIMIT 1',(path,)).fetchone()
+            if not row: raise ValueError('Choose a scanned folder from this inventory')
+            item=json.loads(row[0]); path=item['path']
+            if item['reparse'] or item['cloud']!='ordinary-local': raise ValueError('This folder was excluded from enumeration')
+            if not any(path.lower()==r.lower() or path.lower().startswith(r.rstrip('\\/') .lower()+os.sep) for r in roots): raise ValueError('Folder is outside this inventory')
+            prefix=path.rstrip('\\/')+os.sep
+            # First segment beneath this directory identifies each immediate child.
+            relative=f'substr(path,{len(prefix)+1})'
+            bucket=f"? || CASE WHEN instr({relative},?)>0 THEN substr({relative},1,instr({relative},?)-1) ELSE {relative} END"
+            where='substr(path,1,?)=? COLLATE NOCASE AND length(path)>?'
+            args=[prefix,os.sep,os.sep,len(prefix),prefix,len(prefix)]
+        else:
+            cases=[]; conditions=[]
+            for root in roots:
+                prefix=root.rstrip('\\/')+os.sep
+                condition='(path=? COLLATE NOCASE OR substr(path,1,?)=? COLLATE NOCASE)'
+                cases.append(f'WHEN {condition} THEN ?')
+                args.extend([root,len(prefix),prefix,root])
+                conditions.append(condition)
+            bucket='CASE '+' '.join(cases)+' END'
+            where=' OR '.join(conditions)
+            for root in roots:
+                prefix=root.rstrip('\\/')+os.sep
+                args.extend([root,len(prefix),prefix])
+        query=f'''WITH grouped AS (SELECT id,path,kind,allocated,logical,identity,body,{bucket} AS bucket FROM entries WHERE {where}),
+            totals AS (SELECT bucket,SUM(CASE WHEN kind='file' THEN logical ELSE 0 END) AS logical,
+                SUM(kind='file') AS files,SUM(kind='file' AND allocated IS NULL) AS unknown,
+                SUM(kind='error' OR json_extract(body,'$.reparse')=1 OR json_extract(body,'$.cloud')!='ordinary-local') AS gaps
+                FROM grouped GROUP BY bucket),
+            known AS (SELECT bucket,SUM(allocated) AS allocated FROM
+                (SELECT bucket,COALESCE(identity,path),MAX(allocated) AS allocated FROM grouped WHERE kind='file' AND allocated IS NOT NULL GROUP BY bucket,COALESCE(identity,path)) GROUP BY bucket)
+            SELECT t.*,COALESCE(k.allocated,0) AS allocated,e.id,e.kind,e.body
+            FROM totals t LEFT JOIN known k ON k.bucket=t.bucket LEFT JOIN entries e ON e.id=(SELECT MIN(id) FROM entries WHERE path=t.bucket)
+            ORDER BY allocated DESC,t.bucket LIMIT ? OFFSET ?'''
+        with self.connect() as c:
+            rows=c.execute(query,(*args,limit+1,offset)).fetchall()
+        result=[]
+        for row in rows[:limit]:
+            body=json.loads(row['body']) if row['body'] else {}
+            result.append(dict(id=row['id'],path=row['bucket'],kind=row['kind'] or 'directory',allocated=str(row['allocated']),logical=str(row['logical']),files=row['files'],unknown=row['unknown'],gaps=row['gaps'],navigable=row['kind']=='directory' and not body.get('reparse') and body.get('cloud')=='ordinary-local'))
+        parent='' if not path or path.lower() in [r.lower() for r in roots] else str(Path(path).parent)
+        return dict(path=path,parent=parent,roots=roots,entries=result,offset=offset,has_more=len(rows)>limit,status=state['status'])
 
     def mark(self, id, value):
         if value not in {'keep','later','review'}: raise ValueError('Invalid review state')

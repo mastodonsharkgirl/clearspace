@@ -55,6 +55,18 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def fixed_drives():
+    """List fixed volume roots only; never enumerate their contents."""
+    if os.name != 'nt': return []
+    k=kernel(); mask=k.GetLogicalDrives(); result=[]
+    k.GetDriveTypeW.argtypes=[ctypes.c_wchar_p]
+    for index in range(26):
+        root=chr(65+index)+':\\'
+        if mask & (1 << index) and k.GetDriveTypeW(root)==3:
+            result.append(root)
+    return result
+
+
 def native(path):
     path = os.path.abspath(path)
     return '\\\\?\\' + path if os.name == 'nt' and not path.startswith('\\\\') else path

@@ -14,6 +14,7 @@ from pathlib import Path
 import uvicorn
 from .inventory import Inventory
 from .server import create_app
+from .picker import FolderPicker
 
 
 def main():
@@ -34,7 +35,7 @@ def main():
             import tkinter.messagebox
             tkinter.messagebox.showinfo('Clearspace is already running','Use Open Clearspace in the existing launcher. Quit that launcher before starting another session.')
         return 2
-    root=None;pick_requests=[]
+    root=None
     if not args.headless:
         import tkinter as tk
         from tkinter import filedialog
@@ -48,11 +49,16 @@ def main():
     inv=Inventory(args.data)
     if inv.state()['status']=='scanning':inv.fail()
     frontend=(Path(sys._MEIPASS)/'frontend') if getattr(sys,'frozen',False) else Path(__file__).parent.parent/'dist'
-    def pick():
-        event=threading.Event();result=[];pick_requests.append((event,result));event.wait(120)
-        return result[0] if result else ''
+    def choose_folder():
+        root.deiconify(); root.lift(); root.attributes('-topmost', True)
+        root.focus_force()
+        try:
+            return filedialog.askdirectory(parent=root, mustexist=True, title='Clearspace — choose a folder or drive to scan')
+        finally:
+            if root.winfo_exists(): root.attributes('-topmost', False)
+    picker=FolderPicker(choose_folder) if root else None
     quit_event=threading.Event()
-    app=create_app(inv,token,host,frontend,pick_folder=pick if root else None,shutdown=quit_event.set)
+    app=create_app(inv,token,host,frontend,pick_folder=picker,shutdown=quit_event.set)
     config=uvicorn.Config(app,host='127.0.0.1',port=port,log_level='critical',access_log=False,log_config=None)
     server=uvicorn.Server(config)
     thread=threading.Thread(target=lambda:server.run(sockets=[sock]),daemon=False);thread.start()
@@ -71,7 +77,7 @@ def main():
         from tkinter import filedialog
         tk.Button(root,text='Open Clearspace',command=lambda:webbrowser.open(url),font=('Segoe UI',11),bg='#344f38',fg='white',width=24).pack(pady=(15,8))
         def change_data():
-            folder=filedialog.askdirectory(title='Choose a dedicated Clearspace data folder')
+            folder=filedialog.askdirectory(parent=root,title='Choose a dedicated Clearspace data folder')
             if folder:
                 stop()
                 command=[sys.executable] if getattr(sys,'frozen',False) else [sys.executable,str(Path(__file__).parent.parent/'run_clearspace.py')]
@@ -88,10 +94,8 @@ def main():
                     with urllib.request.urlopen(f'http://{host}/health',timeout=1) as response:
                         if response.status==200:webbrowser.open(url);opened=True
                 except OSError:pass
-            if pick_requests:
-                event,result=pick_requests.pop(0)
-                result.append(filedialog.askdirectory(title='Choose a folder to scan (metadata only)'));event.set()
             root.after(100,tick)
+            picker.run_pending()
         root.after(100,tick);root.mainloop()
     else:
         try:
