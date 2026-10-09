@@ -102,3 +102,33 @@ def test_exact_content_budget_and_preopen_hardlink(tmp_path):
         with content_file(path) as f:yield f
     with patch('clearspace.duplicates.content_file',new_link):r=compare_selected(inv,[ids['a'],ids['b']],threading.Event(),byte_budget=4)
     assert not r['groups'];assert int(r['bytes_read'])<=4
+
+
+def test_inplace_reparse_write_is_blocked(tmp_path):
+    import ctypes,struct
+    from clearspace.metadata import native
+    root=tmp_path/'selected';root.mkdir();child=root/'child';child.mkdir()
+    outside=tmp_path/'outside';outside.mkdir();(outside/'outside.txt').write_text('fixture')
+    k=ctypes.WinDLL('kernel32',use_last_error=True)
+    k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p];k.CreateFileW.restype=ctypes.c_void_p
+    original=os.scandir;attempted=[]
+    def mutate(path):
+        if Path(path)==child and not attempted:
+            attempted.append(True)
+            h=k.CreateFileW(native(str(child)),0x40000000,3,None,3,0x02000000|0x00200000,None)
+            if h==ctypes.c_void_p(-1).value:raise ctypes.WinError(ctypes.get_last_error())
+            try:
+                substitute=('\\??\\'+str(outside)).encode('utf-16-le');printed=str(outside).encode('utf-16-le')
+                body=struct.pack('<HHHH',0,len(substitute),len(substitute)+2,len(printed))+substitute+b'\0\0'+printed+b'\0\0'
+                buffer=ctypes.create_string_buffer(struct.pack('<IHH',0xA0000003,len(body),0)+body);returned=ctypes.c_ulong()
+                assert k.DeviceIoControl(ctypes.c_void_p(h),0x900A4,buffer,len(buffer)-1,None,0,ctypes.byref(returned),None)
+            finally:k.CloseHandle(ctypes.c_void_p(h))
+        return original(path)
+    inv=Inventory(tmp_path/'data')
+    try:
+        with patch('clearspace.inventory.os.scandir',mutate):inv.scan([str(root)],threading.Event())
+        assert attempted
+        assert 'outside.txt' not in [Path(e['path']).name for e in inv.entries()['entries']]
+        assert inv.report()['status']=='partial'
+    finally:
+        if child.is_junction():os.rmdir(child)

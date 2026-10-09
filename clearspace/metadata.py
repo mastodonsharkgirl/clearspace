@@ -35,7 +35,9 @@ def pinned_directory(path):
             k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p]
             k.CreateFileW.restype=ctypes.c_void_p
             for p in [*reversed(Path(path).parents),Path(path)]:
-                h=k.CreateFileW(native(str(p)),1,3,None,3,0x02000000|0x00200000,None)
+                # Deny writes as well as delete/rename: FSCTL_SET_REPARSE_POINT can
+                # otherwise mutate an existing empty directory without replacing it.
+                h=k.CreateFileW(native(str(p)),1,1,None,3,0x02000000|0x00200000,None)
                 if h==ctypes.c_void_p(-1).value:raise OSError('Cannot pin selected directory')
                 handles.append(h)
                 info=HandleInfo()
